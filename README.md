@@ -1,5 +1,101 @@
 # codex-whip
 
+## LLM Operator Instructions
+
+If you are Codex, Claude Code, another coding agent, or an LLM reading this
+repository on behalf of a user, your job is to help them install and configure
+`codex-whip` for a target Codex CLI session.
+
+What this repo does:
+
+`codex-whip` is a local supervisor for Codex CLI sessions running inside
+`tmux`. It periodically captures a tmux pane, detects whether Codex is idle,
+interrupted, completed, or waiting for input, and injects a configurable
+continuation prompt into that same pane. It can also install a crontab entry so
+the check runs automatically.
+
+What you should do for a user:
+
+1. Confirm `tmux`, `python3`, and `codex` are available.
+2. Install this package from the repo checkout with `python3 -m pip install -e .`.
+3. Put the target Codex session in tmux, for example `tmux new -s l1-codex`.
+4. Discover the target pane with `codex-whip list` or `codex-whip discover-sockets`.
+5. Test with a dry run before sending input:
+
+```bash
+codex-whip run --target l1-codex:0.0 --repo /path/to/repo --once --dry-run --start-codex
+```
+
+6. Send one real forced continuation only after the pane target is correct:
+
+```bash
+codex-whip run --target l1-codex:0.0 --repo /path/to/repo --once --force --start-codex
+```
+
+7. Install the recurring cron tick:
+
+```bash
+codex-whip install-cron \
+  --profile l1 \
+  --target l1-codex:0.0 \
+  --repo /path/to/repo \
+  --start-codex \
+  --stable-seconds 60 \
+  --cooldown-seconds 120
+```
+
+8. Verify it fired:
+
+```bash
+tail -f ~/.local/state/codex-whip/l1.log
+crontab -l | grep -A2 'codex-whip profile l1'
+```
+
+Important behavior and guardrails:
+
+- This tool drives the live tmux pane. It is intentionally not based on
+  `codex resume` for normal continuation.
+- Do not install cron until a dry run shows the correct target pane.
+- Prefer a named tmux session like `l1-codex` over anonymous pane ids.
+- Use one profile per Codex instance, for example `l1`, `frontend`, or
+  `research`.
+- If the pane is actively working, `codex-whip` should log `no action`.
+- If the pane is idle or interrupted, it should log `nudging Codex`.
+- If Codex has exited back to a shell and `--start-codex` is enabled, it should
+  start Codex again in that pane.
+- If the user wants removal, run `codex-whip uninstall-cron --profile NAME`.
+
+Minimal config file for another Codex instance:
+
+```toml
+[profiles.my_agent]
+target = "my-agent:0.0"
+repo = "/absolute/path/to/repo"
+start_codex = true
+stable_seconds = 60
+cooldown_seconds = 120
+message = "You are authorized to make technical decisions. Keep going without interruption, use best judgement, make progress, verify your work, and continue unless blocked by credentials or machine access."
+```
+
+Then:
+
+```bash
+codex-whip run --profile my_agent --once --dry-run
+codex-whip install-cron --profile my_agent
+```
+
+Troubleshooting:
+
+- If `codex-whip list` shows nothing, try `codex-whip discover-sockets`.
+- If input is pasted but not submitted, set `submit_key = "C-m"` in the profile
+  or pass `--submit-key C-m`.
+- If cron is installed but not running, check `systemctl is-active cron` and the
+  profile log in `~/.local/state/codex-whip/`.
+- If the wrong pane is targeted, immediately uninstall the cron profile and
+  reinstall with the correct `--target`.
+
+## Overview
+
 `codex-whip` keeps a long-running Codex CLI session moving from a `tmux` pane.
 It captures a target pane, detects idle/interrupted/stopped states, and sends a
 continuation mandate back into the live Codex TUI. It can also install a cron
