@@ -1,0 +1,14 @@
+[profiles.l1]
+target = "l1-codex:0.0"
+repo = "/home/postfiat/repos/postfiatl1v2"
+start_codex = true
+stable_seconds = 60
+cooldown_seconds = 120
+message = "You are the CTO. Keep going without interruption and use your best judgement to advance the project."
+
+[profiles.default]
+target = "codex:0.0"
+repo = "/path/to/repo"
+start_codex = true
+stable_seconds = 120
+cooldown_seconds = 300
