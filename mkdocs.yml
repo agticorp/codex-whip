@@ -1,0 +1,17 @@
+site_name: codex-whip
+site_description: Supervise and orchestrate Codex CLI sessions in tmux — the Nazgûl / Orc pattern
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: red
+markdown_extensions:
+  - tables
+  - admonition
+  - pymdownx.superfences
+nav:
+  - Home: index.md
+  - The Nazgûl / Orc Pattern: nazgul-orc.md
+  - The Operating Loop: operating-loop.md
+  - Porting to a New Machine: porting.md
+  - Instrumentation Roadmap: instrumentation.md
