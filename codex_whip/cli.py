@@ -25,28 +25,16 @@ STATE_HOME = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "sta
 CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
 DEFAULT_CONFIG_FILE = CONFIG_HOME / "codex-whip" / "config.toml"
 DEFAULT_PROFILE = "default"
+AGTI_QUANT_RESEARCH_MANDATE_FILE = (
+    Path(__file__).resolve().parents[1] / "AGTI_QUANT_RESEARCH_MANDATE.md"
+)
 
-PROMPT_VARIANTS = [
-    (
-        "You are the CTO. You are authorized to make whatever decisions you "
-        "want. Keep going without interruption and use your best judgement to "
-        "advance the project. Choose the next highest-value implementation "
-        "step, make the change, verify it, record progress, and continue "
-        "unless blocked by missing credentials or machine access."
-    ),
-    (
-        "Continue as CTO. Make the technical calls yourself, keep moving "
-        "without asking preference questions, inspect the current state, "
-        "implement the next useful slice, run checks, record progress, then "
-        "keep going."
-    ),
-    (
-        "CTO continuation mandate: no approval gating for routine technical "
-        "choices. Use best judgement to push the project forward, make and "
-        "verify concrete changes, update status, and only stop for true "
-        "blockers."
-    ),
-]
+AGTI_QUANT_RESEARCH_MANDATE = (
+    "Read and follow the AGTI quantitative research mandate in "
+    f"{AGTI_QUANT_RESEARCH_MANDATE_FILE}. please proceed and follow this mandate"
+)
+
+PROMPT_VARIANTS = [AGTI_QUANT_RESEARCH_MANDATE]
 
 WAITING_PATTERNS = [
     re.compile(pattern, re.IGNORECASE)
@@ -75,6 +63,9 @@ BUSY_PATTERNS = [
     for pattern in [
         r"\bWorking \(",
         r"\besc to interrupt\b",
+        # Cursor agent shows "Running 12.08k tokens" / "Reading 6.63k tokens"
+        r"\bRunning\s+[\d.]+[kKmM]?\s*tokens\b",
+        r"\bReading\s+[\d.]+[kKmM]?\s*tokens\b",
     ]
 ]
 
@@ -114,7 +105,8 @@ class Settings:
     start_command: str | None = None
     new_session: str | None = None
     auto_approve: bool = False
-    submit_key: str = "C-m"
+    submit_key: str = "Enter"
+    queue_key: str = "Tab"
     paste_submit_delay: float = 0.2
 
     def resolved_state_file(self) -> Path:
@@ -396,7 +388,7 @@ def text_digest(text: str) -> str:
 
 
 def tail_text(text: str, lines: int = 80) -> str:
-    return "\n".join(text.splitlines()[-lines:])
+    return "\n".join(text.rstrip().splitlines()[-lines:])
 
 
 def is_codex_like(settings: Settings, pane: Pane, text: str) -> bool:
@@ -426,6 +418,10 @@ def has_approval_prompt(text: str) -> bool:
 def has_busy_indicator(text: str) -> bool:
     tail = tail_text(text)
     return any(pattern.search(tail) for pattern in BUSY_PATTERNS)
+
+
+def has_queued_followup(text: str) -> bool:
+    return "queued follow-up inputs" in tail_text(text).lower()
 
 
 def pane_state(
@@ -461,9 +457,13 @@ def decide(
     force: bool = False,
 ) -> Decision | None:
     codex_like = is_codex_like(settings, pane, text)
-    shell_like = is_shell(pane.command)
+    shell_like = is_shell(pane.command) and not codex_like
     if codex_like:
         current["saw_codex"] = True
+
+    busy = codex_like and has_busy_indicator(text)
+    if not busy:
+        current.pop("busy_queue_sent", None)
 
     if not force:
         last_action = float(current.get("last_action_at", 0.0))
@@ -481,7 +481,9 @@ def decide(
             )
         return None
 
-    if codex_like and has_busy_indicator(text):
+    if busy:
+        if not has_queued_followup(text) and not current.get("busy_queue_sent"):
+            return Decision("queue", "Codex pane is working; queuing follow-up input")
         return None
 
     if settings.auto_approve and codex_like and has_approval_prompt(text):
@@ -504,15 +506,17 @@ def decide(
     return None
 
 
-def send_text(settings: Settings, pane: Pane, text: str) -> None:
-    buffer_name = f"codex-whip-{os.getpid()}"
-    run_tmux(settings, ["set-buffer", "-b", buffer_name, text])
-    try:
-        run_tmux(settings, ["paste-buffer", "-b", buffer_name, "-t", pane.pane_id])
-        time.sleep(settings.paste_submit_delay)
-        run_tmux(settings, ["send-keys", "-t", pane.pane_id, settings.submit_key])
-    finally:
-        run_tmux(settings, ["delete-buffer", "-b", buffer_name], check=False)
+def input_settle_delay(settings: Settings, text: str) -> float:
+    return max(settings.paste_submit_delay, min(12.0, len(text) * 0.006))
+
+
+def send_text(settings: Settings, pane: Pane, text: str, submit_key: str | None = None) -> None:
+    # Codex's TUI can keep bracketed paste text in the composer after a
+    # subsequent Enter. Literal key injection behaves like normal typing, but
+    # long prompts need time to drain through the TUI before the final key.
+    run_tmux(settings, ["send-keys", "-t", pane.pane_id, "-l", text])
+    time.sleep(input_settle_delay(settings, text))
+    run_tmux(settings, ["send-keys", "-t", pane.pane_id, submit_key or settings.submit_key])
 
 
 def default_start_command(settings: Settings, prompt: str) -> str:
@@ -521,9 +525,7 @@ def default_start_command(settings: Settings, prompt: str) -> str:
             "codex",
             "--cd",
             shlex.quote(settings.repo),
-            "--dangerously-bypass-approvals-and-sandbox",
-            "--ask-for-approval",
-            "never",
+            "--yolo",
             "--no-alt-screen",
             shlex.quote(prompt),
         ]
@@ -557,6 +559,11 @@ def execute_decision(
         log(settings, f"{pane.address} {pane.pane_id}: nudging Codex: {decision.reason}")
         if not dry_run:
             send_text(settings, pane, prompt)
+    elif decision.action == "queue":
+        log(settings, f"{pane.address} {pane.pane_id}: queueing Codex input: {decision.reason}")
+        if not dry_run:
+            current["busy_queue_sent"] = True
+            send_text(settings, pane, prompt, settings.queue_key)
     elif decision.action == "start":
         command = build_start_command(settings, prompt)
         log(settings, f"{pane.address} {pane.pane_id}: starting Codex: {decision.reason}")
@@ -566,7 +573,8 @@ def execute_decision(
             send_text(settings, pane, command)
     else:
         raise RuntimeError(f"unknown decision action: {decision.action}")
-    current["last_action_at"] = now
+    if not dry_run:
+        current["last_action_at"] = now
 
 
 def tick(settings: Settings, state: dict[str, Any], dry_run: bool = False, force: bool = False) -> bool:
@@ -594,7 +602,8 @@ def run_loop(args: argparse.Namespace) -> int:
     state = load_state(state_path)
     while True:
         tick(settings, state, dry_run=args.dry_run, force=args.force)
-        save_state(state_path, state)
+        if not args.dry_run:
+            save_state(state_path, state)
         if args.once:
             return 0
         time.sleep(settings.interval)
@@ -676,6 +685,12 @@ def build_cron_command(args: argparse.Namespace) -> tuple[str, str]:
             str(settings.restart_stable_seconds),
             "--cooldown-seconds",
             str(settings.cooldown_seconds),
+            "--submit-key",
+            shlex.quote(settings.submit_key),
+            "--queue-key",
+            shlex.quote(settings.queue_key),
+            "--paste-submit-delay",
+            str(settings.paste_submit_delay),
         ]
     )
     command = " ".join(command_parts)
@@ -713,7 +728,7 @@ repo = "/home/postfiat/repos/postfiatl1v2"
 start_codex = true
 stable_seconds = 60
 cooldown_seconds = 120
-message = "You are the CTO. Keep going without interruption and use your best judgement to advance the project."
+# Omit message to use the built-in AGTI quantitative research mandate.
 """
     )
     return 0
@@ -741,6 +756,7 @@ def add_common_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--new-session", help="create a detached tmux session if needed")
     parser.add_argument("--auto-approve", dest="auto_approve_flag", action="store_true")
     parser.add_argument("--submit-key", help="tmux key used to submit text")
+    parser.add_argument("--queue-key", help="tmux key used to queue text while Codex is working")
     parser.add_argument("--paste-submit-delay", type=float, help="delay between paste and submit")
 
 

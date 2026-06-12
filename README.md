@@ -74,7 +74,7 @@ repo = "/absolute/path/to/repo"
 start_codex = true
 stable_seconds = 60
 cooldown_seconds = 120
-message = "You are authorized to make technical decisions. Keep going without interruption, use best judgement, make progress, verify your work, and continue unless blocked by credentials or machine access."
+# Omit message to use the built-in AGTI quantitative research mandate.
 ```
 
 Then:
@@ -87,8 +87,10 @@ codex-whip install-cron --profile my_agent
 Troubleshooting:
 
 - If `codex-whip list` shows nothing, try `codex-whip discover-sockets`.
-- If input is pasted but not submitted, set `submit_key = "C-m"` in the profile
-  or pass `--submit-key C-m`.
+- If input appears in the composer but is not submitted, keep `submit_key = "Enter"`;
+  the submit fix is literal key injection instead of tmux paste mode.
+- If Codex is actively working, `codex-whip` uses `queue_key = "Tab"` so the
+  message appears as a queued follow-up instead of being dropped.
 - If cron is installed but not running, check `systemctl is-active cron` and the
   profile log in `~/.local/state/codex-whip/`.
 - If the wrong pane is targeted, immediately uninstall the cron profile and
@@ -123,7 +125,7 @@ Start Codex in tmux:
 
 ```bash
 tmux new -s l1-codex
-codex --cd /path/to/repo --dangerously-bypass-approvals-and-sandbox --ask-for-approval never --no-alt-screen
+codex --cd /path/to/repo --yolo --no-alt-screen
 ```
 
 From another terminal:
@@ -174,7 +176,7 @@ repo = "/home/postfiat/repos/postfiatl1v2"
 start_codex = true
 stable_seconds = 60
 cooldown_seconds = 120
-message = "You are the CTO. Keep going without interruption and use your best judgement to advance the project."
+# Omit message to use the built-in AGTI quantitative research mandate.
 ```
 
 Then run:
@@ -204,7 +206,7 @@ It avoids injecting while Codex is actively working by checking for the live
 - The default restart command launches:
 
 ```bash
-codex --cd <repo> --dangerously-bypass-approvals-and-sandbox --ask-for-approval never --no-alt-screen '<message>'
+codex --cd <repo> --yolo --no-alt-screen '<message>'
 ```
 
 You can override it:
