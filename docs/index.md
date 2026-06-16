@@ -36,7 +36,12 @@ and commands (or escalates / merges) → the Eye watches again.**
 ## Start here
 
 - **[The Nazgûl / Orc Pattern](nazgul-orc.md)** — the model and why
-  manager-decides-on-stop beats a static nudge.
+  manager-decides-on-stop beats a static nudge. Includes the **two agent
+  classes / two keep-alive mechanisms** split (Codex orc = whip; Claude Code
+  Nazgûl = harness scheduler).
+- **[Managing a Claude Code Nazgûl](managing-claude.md)** — how to run a
+  Claude Code session as the manager: keep it alive with the harness scheduler
+  (NOT the whip — tmux injection gets stuck on Claude Code), and the read/decide/inject cycle against its Codex orc.
 - **[The Operating Loop](operating-loop.md)** — the concrete mechanics:
   reading, deciding, injecting (with the bracketed-paste gotcha), the Eye
   watcher, and the guardrails.

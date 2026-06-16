@@ -55,3 +55,21 @@ pane and injects what the manager decides.
 > default.** It proves, tests, and commits, but it never touches secrets,
 > funds, or anything reserved — it escalates those to the Nazgûl, who
 > escalates to Sauron. Power flows down only by explicit grant.
+
+## Two agent classes, two keep-alive mechanisms
+
+The cast splits into two classes, and they are **kept alive differently**.
+Conflating them is the classic failure:
+
+| role | example | keep-alive |
+|---|---|---|
+| **Orc** (builder) | Codex CLI in tmux | **the whip**: tmux cron captures the pane, classifies state, injects a continuation. Built for this. |
+| **Nazgûl** (manager) | Claude Code in tmux | **the harness scheduler**: enqueues the next turn when the REPL is idle. *Not* the whip. |
+
+Why the split: the whip drives a pane via `tmux send-keys` + Enter, which
+Codex's TUI accepts but **Claude Code's does not** — Claude Code leaves a
+pasted line unsubmitted and its `esc to interrupt` busy signal is intermittent,
+so the whip can't reliably nudge a Claude pane (the tick gets pasted but never
+fires). The harness scheduler enqueues a Claude Code turn natively, so a Claude
+manager is kept looping by the scheduler, while it uses tmux only to read and
+inject its Codex orc. Full guide: **[Managing a Claude Code Nazgûl](managing-claude.md)**.
