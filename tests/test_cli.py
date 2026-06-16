@@ -187,5 +187,64 @@ class ConfigTests(unittest.TestCase):
         self.assertNotIn("busy_queue_sent", current)
 
 
+class SendTextTests(unittest.TestCase):
+    def _pane(self):
+        return Pane(
+            pane_id="%1",
+            address="x:0.0",
+            command="claude",
+            active="1",
+            path="/tmp/repo",
+            title="",
+        )
+
+    def test_send_text_retries_submit_until_busy_then_stops(self):
+        from unittest import mock
+
+        from codex_whip import cli
+
+        settings = Settings(
+            max_submit_attempts=4,
+            submit_verify_delay=0.0,
+            paste_submit_delay=0.0,
+        )
+        busy = iter([False, False, True, True])
+        with mock.patch.object(cli, "run_tmux") as mock_run, mock.patch.object(
+            cli, "capture_pane", return_value=""
+        ), mock.patch.object(
+            cli, "has_busy_indicator", side_effect=lambda _: next(busy)
+        ), mock.patch.object(cli, "log") as mock_log, mock.patch.object(cli, "time"):
+            cli.send_text(settings, self._pane(), "hello")
+
+        submits = [
+            call
+            for call in mock_run.call_args_list
+            if call.args[1][:2] == ["send-keys", "-t"]
+            and call.args[1][-1] == settings.submit_key
+        ]
+        self.assertEqual(len(submits), 3)
+        mock_log.assert_not_called()
+
+    def test_send_text_logs_when_submit_never_verifies(self):
+        from unittest import mock
+
+        from codex_whip import cli
+
+        settings = Settings(
+            max_submit_attempts=3,
+            submit_verify_delay=0.0,
+            paste_submit_delay=0.0,
+        )
+        with mock.patch.object(cli, "run_tmux"), mock.patch.object(
+            cli, "capture_pane", return_value=""
+        ), mock.patch.object(
+            cli, "has_busy_indicator", return_value=False
+        ), mock.patch.object(cli, "log") as mock_log, mock.patch.object(cli, "time"):
+            cli.send_text(settings, self._pane(), "hello")
+
+        mock_log.assert_called_once()
+        self.assertIn("did not verify", mock_log.call_args[0][1])
+
+
 if __name__ == "__main__":
     unittest.main()

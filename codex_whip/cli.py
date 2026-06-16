@@ -108,6 +108,8 @@ class Settings:
     submit_key: str = "Enter"
     queue_key: str = "Tab"
     paste_submit_delay: float = 0.2
+    submit_verify_delay: float = 2.0
+    max_submit_attempts: int = 4
 
     def resolved_state_file(self) -> Path:
         if self.state_file:
@@ -186,11 +188,13 @@ def settings_from_config(config: dict[str, Any], profile: str) -> Settings:
         "restart_stable_seconds",
         "cooldown_seconds",
         "paste_submit_delay",
+        "submit_verify_delay",
     ]:
         if key in coerced:
             coerced[key] = float(coerced[key])
-    if "capture_lines" in coerced:
-        coerced["capture_lines"] = int(coerced["capture_lines"])
+    for key in ["capture_lines", "max_submit_attempts"]:
+        if key in coerced:
+            coerced[key] = int(coerced[key])
 
     return Settings(**coerced)
 
@@ -511,12 +515,29 @@ def input_settle_delay(settings: Settings, text: str) -> float:
 
 
 def send_text(settings: Settings, pane: Pane, text: str, submit_key: str | None = None) -> None:
-    # Codex's TUI can keep bracketed paste text in the composer after a
-    # subsequent Enter. Literal key injection behaves like normal typing, but
-    # long prompts need time to drain through the TUI before the final key.
+    # Literal key injection behaves like normal typing, but long prompts need
+    # time to drain through the TUI before the submit key.
+    key = submit_key or settings.submit_key
     run_tmux(settings, ["send-keys", "-t", pane.pane_id, "-l", text])
     time.sleep(input_settle_delay(settings, text))
-    run_tmux(settings, ["send-keys", "-t", pane.pane_id, submit_key or settings.submit_key])
+    # Verify the submit actually took. Claude Code and Codex both render a busy
+    # indicator ("esc to interrupt" / "Working (") the instant they start
+    # processing the input; if the pane is still at an idle input prompt, the
+    # submit key fired before the pasted text was ingested (a paste/submit
+    # race), so re-send it. This is what makes injection reliable in Claude
+    # Code, where ingestion latency varies. A retry after a successful submit
+    # only sends Enter to an already-cleared composer (harmless), never a
+    # duplicate of the text.
+    for _attempt in range(settings.max_submit_attempts):
+        run_tmux(settings, ["send-keys", "-t", pane.pane_id, key])
+        time.sleep(settings.submit_verify_delay)
+        if has_busy_indicator(capture_pane(settings, pane.pane_id)):
+            return
+    log(
+        settings,
+        f"{pane.address} {pane.pane_id}: submit did not verify after "
+        f"{settings.max_submit_attempts} attempts",
+    )
 
 
 def default_start_command(settings: Settings, prompt: str) -> str:
@@ -691,6 +712,10 @@ def build_cron_command(args: argparse.Namespace) -> tuple[str, str]:
             shlex.quote(settings.queue_key),
             "--paste-submit-delay",
             str(settings.paste_submit_delay),
+            "--submit-verify-delay",
+            str(settings.submit_verify_delay),
+            "--max-submit-attempts",
+            str(settings.max_submit_attempts),
         ]
     )
     command = " ".join(command_parts)
@@ -758,6 +783,8 @@ def add_common_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--submit-key", help="tmux key used to submit text")
     parser.add_argument("--queue-key", help="tmux key used to queue text while Codex is working")
     parser.add_argument("--paste-submit-delay", type=float, help="delay between paste and submit")
+    parser.add_argument("--submit-verify-delay", type=float, help="seconds to wait after submit before verifying")
+    parser.add_argument("--max-submit-attempts", type=int, help="submit-key retries until the agent goes busy")
 
 
 def build_parser() -> argparse.ArgumentParser:
