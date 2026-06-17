@@ -64,6 +64,9 @@ Important behavior and guardrails:
 - If Codex has exited back to a shell and `--start-codex` is enabled, it should
   start Codex again in that pane.
 - If the user wants removal, run `codex-whip uninstall-cron --profile NAME`.
+- **The autonomous loop is designed to keep running until the operator halts
+  it.** Never turn it off, pause it, or delete the scheduler tick — that is the
+  operator's call, never the agent's. See `docs/managing-claude.md`.
 
 Minimal config file for another Codex instance:
 

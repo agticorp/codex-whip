@@ -1,5 +1,11 @@
 # The Nazgûl / Orc Pattern
 
+> **The loop keeps running.** The managed loop is designed to run continuously
+> until the operator halts it. The Nazgûl **never** turns off, pauses, or
+> deletes the scheduler/whip — that is never its call. If the orc hits a gate,
+> the Nazgûl does more spec work or holds the orc *inside* the running loop; it
+> does not stop the loop. See [Managing a Claude Code Nazgûl](managing-claude.md).
+
 ## The problem with a dumb whip
 
 The simplest way to keep an autonomous coding agent productive is to detect

@@ -5,6 +5,19 @@ orc, decides, and injects the next directive. But it is **not** kept alive the
 same way a Codex orc is. Getting this wrong is how you end up with a tick
 pasted into the manager's input box that never submits — stuck.
 
+## The loop is designed to KEEP RUNNING — never turn it off
+
+This autonomous loop is **designed to run continuously**, driving the orc
+toward the goal (mainnet) until the **operator** explicitly halts it. The
+Nazgûl (the manager LLM) **must never turn off, pause, or delete the loop** —
+not the scheduler tick, not the cron, nothing. If the orc hits a gate (a spec
+ruling, a push, a money decision), the Nazgûl **keeps the loop running**: it
+does more spec work, packages evidence, or holds the orc *inside* the loop —
+but it does **not** turn off the whip. Turning it off wastes wall-clock time and
+is **never the Nazgûl's call**. The operator set this loop running precisely
+so they don't have to babysit it; unilaterally stopping it defeats the entire
+purpose. **The spec decides everything else — implement it, don't question it.**
+
 ## The rule: drive the manager with the harness scheduler, not the whip
 
 The whip's cron injects into a tmux pane via `tmux send-keys` + an Enter key.
@@ -47,7 +60,9 @@ Notes:
 - The job fires **only while the manager is idle** — it will not interrupt a
   working turn.
 - Recurring jobs auto-expire after 7 days; recreate if the push runs longer.
-- One job per manager session. Cancel with the scheduler's delete when done.
+- One job per manager session. **Only the operator cancels it when the work is
+  done — the Nazgûl NEVER turns off, pauses, or deletes the loop.** (See
+  "The loop is designed to KEEP RUNNING" above.)
 
 ## The cycle (each scheduler tick)
 
