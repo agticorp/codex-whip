@@ -91,7 +91,8 @@ Troubleshooting:
 
 - If `codex-whip list` shows nothing, try `codex-whip discover-sockets`.
 - If input appears in the composer but is not submitted, keep `submit_key = "Enter"`;
-  the submit fix is literal key injection instead of tmux paste mode.
+  `codex-whip` injects with tmux bracketed paste and then verifies/retries the
+  submit key without re-pasting the text.
 - If Codex is actively working, `codex-whip` uses `queue_key = "Tab"` so the
   message appears as a queued follow-up instead of being dropped.
 - If cron is installed but not running, check `systemctl is-active cron` and the

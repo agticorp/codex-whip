@@ -98,7 +98,7 @@ class Settings:
     tmux: str = "tmux"
     socket_name: str | None = None
     socket_path: str | None = None
-    codex_command_regex: str = r"(^|/)codex(?:-cli)?$"
+    codex_command_regex: str = r"(^|/)(codex(?:-cli)?|pfterminal)$"
     state_file: str | None = None
     log_file: str | None = None
     start_codex: bool = False
@@ -245,6 +245,22 @@ def run_tmux(settings: Settings, tmux_args: list[str], check: bool = True) -> st
     return proc.stdout
 
 
+def run_tmux_input(
+    settings: Settings, tmux_args: list[str], input_text: str, check: bool = True
+) -> str:
+    proc = subprocess.run(
+        tmux_base(settings) + tmux_args,
+        input=input_text,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if check and proc.returncode != 0:
+        message = proc.stderr.strip() or proc.stdout.strip() or "tmux command failed"
+        raise RuntimeError(f"{' '.join(tmux_base(settings) + tmux_args)}: {message}")
+    return proc.stdout
+
+
 def log(settings: Settings, message: str) -> None:
     stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     line = f"{stamp} {message}"
@@ -346,14 +362,16 @@ def resolve_pane(settings: Settings) -> Pane:
         for pane in panes
         if codex_re.search(pane.command)
         or "codex" in pane.address.lower()
+        or "pfterminal" in pane.address.lower()
         or "codex" in pane.title.lower()
+        or "pfterminal" in pane.title.lower()
     ]
     if len(candidates) == 1:
         return candidates[0]
     if not candidates:
         return create_session(settings)
 
-    print("Multiple Codex-like tmux panes found. Re-run with --target:")
+    print("Multiple agent-like tmux panes found. Re-run with --target:")
     print_panes(candidates)
     raise SystemExit(2)
 
@@ -397,11 +415,16 @@ def tail_text(text: str, lines: int = 80) -> str:
 
 def is_codex_like(settings: Settings, pane: Pane, text: str) -> bool:
     codex_re = re.compile(settings.codex_command_regex, re.IGNORECASE)
+    tail = tail_text(text, 40).lower()
     return (
         bool(codex_re.search(pane.command))
         or "codex" in pane.address.lower()
+        or "pfterminal" in pane.address.lower()
         or "codex" in pane.title.lower()
-        or "codex" in tail_text(text, 40).lower()
+        or "pfterminal" in pane.title.lower()
+        or "codex" in tail
+        or "pfterminal" in tail
+        or "post fiat terminal" in tail
     )
 
 
@@ -481,13 +504,13 @@ def decide(
         if not force and can_start and stable_for >= settings.restart_stable_seconds:
             return Decision(
                 "start",
-                f"previous Codex pane is at shell and stable for {stable_for:.0f}s",
+                f"previous agent pane is at shell and stable for {stable_for:.0f}s",
             )
         return None
 
     if busy:
         if not has_queued_followup(text) and not current.get("busy_queue_sent"):
-            return Decision("queue", "Codex pane is working; queuing follow-up input")
+            return Decision("queue", "agent pane is working; queuing follow-up input")
         return None
 
     if settings.auto_approve and codex_like and has_approval_prompt(text):
@@ -495,16 +518,16 @@ def decide(
 
     if force:
         if codex_like:
-            return Decision("nudge", "forced Codex pane nudge")
+            return Decision("nudge", "forced agent pane nudge")
         return None
 
     if codex_like and has_waiting_prompt(text):
-        return Decision("nudge", "Codex-like pane appears to be waiting")
+        return Decision("nudge", "agent-like pane appears to be waiting")
 
     if codex_like and stable_for >= settings.stable_seconds:
         return Decision(
             "nudge",
-            f"Codex-like pane has been stable for {stable_for:.0f}s",
+            f"agent-like pane has been stable for {stable_for:.0f}s",
         )
 
     return None
@@ -514,20 +537,33 @@ def input_settle_delay(settings: Settings, text: str) -> float:
     return max(settings.paste_submit_delay, min(12.0, len(text) * 0.006))
 
 
+def paste_text(settings: Settings, pane: Pane, text: str) -> None:
+    digest = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()[:12]
+    buffer_name = f"codex-whip-{os.getpid()}-{time.time_ns()}-{digest}"
+    run_tmux_input(settings, ["load-buffer", "-b", buffer_name, "-"], text)
+    try:
+        # -r keeps LF characters intact instead of converting each newline to
+        # CR (tmux's default separator), so multiline prompts are pasted as one
+        # composer insert rather than being submitted line by line. -p still
+        # adds bracketed-paste control codes for applications that enable them.
+        run_tmux(
+            settings,
+            ["paste-buffer", "-p", "-r", "-b", buffer_name, "-t", pane.pane_id],
+        )
+    finally:
+        run_tmux(settings, ["delete-buffer", "-b", buffer_name], check=False)
+
+
 def send_text(settings: Settings, pane: Pane, text: str, submit_key: str | None = None) -> None:
-    # Literal key injection behaves like normal typing, but long prompts need
-    # time to drain through the TUI before the submit key.
+    # Bracketed paste preserves multi-character prompts as one composer insert
+    # and avoids tmux send-keys escaping edge cases for punctuation-heavy text.
     key = submit_key or settings.submit_key
-    run_tmux(settings, ["send-keys", "-t", pane.pane_id, "-l", text])
+    paste_text(settings, pane, text)
     time.sleep(input_settle_delay(settings, text))
-    # Verify the submit actually took. Claude Code and Codex both render a busy
-    # indicator ("esc to interrupt" / "Working (") the instant they start
-    # processing the input; if the pane is still at an idle input prompt, the
-    # submit key fired before the pasted text was ingested (a paste/submit
-    # race), so re-send it. This is what makes injection reliable in Claude
-    # Code, where ingestion latency varies. A retry after a successful submit
-    # only sends Enter to an already-cleared composer (harmless), never a
-    # duplicate of the text.
+    # Verify the submit actually took. Codex renders a busy indicator ("Working
+    # (" / "esc to interrupt") when it starts processing input. If the pane is
+    # still idle, the submit key likely fired before the paste was ingested, so
+    # retry only the submit key. The text itself is pasted exactly once.
     for _attempt in range(settings.max_submit_attempts):
         run_tmux(settings, ["send-keys", "-t", pane.pane_id, key])
         time.sleep(settings.submit_verify_delay)
@@ -577,17 +613,17 @@ def execute_decision(
         if not dry_run:
             run_tmux(settings, ["send-keys", "-t", pane.pane_id, settings.submit_key])
     elif decision.action == "nudge":
-        log(settings, f"{pane.address} {pane.pane_id}: nudging Codex: {decision.reason}")
+        log(settings, f"{pane.address} {pane.pane_id}: nudging agent: {decision.reason}")
         if not dry_run:
             send_text(settings, pane, prompt)
     elif decision.action == "queue":
-        log(settings, f"{pane.address} {pane.pane_id}: queueing Codex input: {decision.reason}")
+        log(settings, f"{pane.address} {pane.pane_id}: queueing agent input: {decision.reason}")
         if not dry_run:
             current["busy_queue_sent"] = True
             send_text(settings, pane, prompt, settings.queue_key)
     elif decision.action == "start":
         command = build_start_command(settings, prompt)
-        log(settings, f"{pane.address} {pane.pane_id}: starting Codex: {decision.reason}")
+        log(settings, f"{pane.address} {pane.pane_id}: starting agent: {decision.reason}")
         if dry_run:
             log(settings, f"dry-run start command: {command}")
         else:

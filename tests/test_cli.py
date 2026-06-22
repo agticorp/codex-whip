@@ -169,6 +169,27 @@ class ConfigTests(unittest.TestCase):
         self.assertIsNotNone(decision)
         self.assertEqual(decision.action, "queue")
 
+    def test_pfterminal_screen_is_nudgeable(self):
+        pane = Pane(
+            pane_id="%9",
+            address="pfterminalworker:0.0",
+            command="pfterminal",
+            active="1",
+            path="/home/postfiat/repos",
+            title="repos",
+        )
+        text = (
+            "╭────────────────────╮\n"
+            "│ >_ PFTerminal (v0.0.0)\n"
+            "╰────────────────────╯\n\n"
+            "› Implement {feature}\n"
+            "  zai-org/GLM-5.2-FP8 standard · ~/repos · Post Fiat Terminal\n"
+        )
+        self.assertTrue(is_codex_like(Settings(), pane, text))
+        decision = decide(Settings(), pane, text, {}, stable_for=0.0, now=0.0, force=True)
+        self.assertIsNotNone(decision)
+        self.assertEqual(decision.action, "nudge")
+
     def test_busy_queue_only_once_until_not_busy(self):
         pane = Pane(
             pane_id="%1",
@@ -209,13 +230,32 @@ class SendTextTests(unittest.TestCase):
             paste_submit_delay=0.0,
         )
         busy = iter([False, False, True, True])
-        with mock.patch.object(cli, "run_tmux") as mock_run, mock.patch.object(
-            cli, "capture_pane", return_value=""
-        ), mock.patch.object(
+        with mock.patch.object(cli, "run_tmux_input") as mock_input, mock.patch.object(
+            cli, "run_tmux"
+        ) as mock_run, mock.patch.object(cli, "capture_pane", return_value=""), mock.patch.object(
             cli, "has_busy_indicator", side_effect=lambda _: next(busy)
         ), mock.patch.object(cli, "log") as mock_log, mock.patch.object(cli, "time"):
             cli.send_text(settings, self._pane(), "hello")
 
+        mock_input.assert_called_once()
+        self.assertEqual(mock_input.call_args.args[1][0], "load-buffer")
+        self.assertEqual(mock_input.call_args.args[2], "hello")
+        self.assertTrue(
+            any(
+                call.args[1][0] == "paste-buffer" and "-p" in call.args[1]
+                for call in mock_run.call_args_list
+            )
+        )
+        self.assertTrue(
+            any(
+                call.args[1][0] == "paste-buffer" and "-r" in call.args[1]
+                for call in mock_run.call_args_list
+            ),
+            "paste-buffer must pass -r so multiline prompts keep their LF characters",
+        )
+        self.assertTrue(
+            any(call.args[1][0] == "delete-buffer" for call in mock_run.call_args_list)
+        )
         submits = [
             call
             for call in mock_run.call_args_list
@@ -235,15 +275,90 @@ class SendTextTests(unittest.TestCase):
             submit_verify_delay=0.0,
             paste_submit_delay=0.0,
         )
-        with mock.patch.object(cli, "run_tmux"), mock.patch.object(
-            cli, "capture_pane", return_value=""
-        ), mock.patch.object(
+        with mock.patch.object(cli, "run_tmux_input"), mock.patch.object(
+            cli, "run_tmux"
+        ), mock.patch.object(cli, "capture_pane", return_value=""), mock.patch.object(
             cli, "has_busy_indicator", return_value=False
         ), mock.patch.object(cli, "log") as mock_log, mock.patch.object(cli, "time"):
             cli.send_text(settings, self._pane(), "hello")
 
         mock_log.assert_called_once()
         self.assertIn("did not verify", mock_log.call_args[0][1])
+
+
+class PasteTextTests(unittest.TestCase):
+    def _pane(self):
+        return Pane(
+            pane_id="%1",
+            address="x:0.0",
+            command="claude",
+            active="1",
+            path="/tmp/repo",
+            title="",
+        )
+
+    def test_paste_buffer_uses_r_flag_to_preserve_lf(self):
+        from unittest import mock
+
+        from codex_whip import cli
+
+        settings = Settings()
+        with mock.patch.object(cli, "run_tmux_input") as mock_input, mock.patch.object(
+            cli, "run_tmux"
+        ) as mock_run:
+            cli.paste_text(settings, self._pane(), "line1\nline2")
+
+        # load-buffer <name> - receives the multiline text unchanged as stdin.
+        mock_input.assert_called_once()
+        args = mock_input.call_args.args[1]
+        self.assertEqual(args[0], "load-buffer")
+        self.assertEqual(args[1], "-b")
+        self.assertTrue(args[2].startswith("codex-whip-"))
+        self.assertEqual(args[3], "-")
+        self.assertEqual(mock_input.call_args.args[2], "line1\nline2")
+
+        # paste-buffer is invoked with both -p (bracketed paste) and -r (raw,
+        # LF-preserving) and targets the pane.
+        paste_calls = [
+            call for call in mock_run.call_args_list if call.args[1][0] == "paste-buffer"
+        ]
+        self.assertEqual(len(paste_calls), 1)
+        args = paste_calls[0].args[1]
+        self.assertIn("-p", args)
+        self.assertIn("-r", args)
+        self.assertIn("-t", args)
+        # delete-buffer still runs unconditionally.
+        self.assertTrue(
+            any(call.args[1][0] == "delete-buffer" for call in mock_run.call_args_list)
+        )
+
+    def test_multiline_text_loaded_unchanged_and_buffer_deleted(self):
+        from unittest import mock
+
+        from codex_whip import cli
+
+        settings = Settings()
+        multiline = (
+            "First line of the mandate.\n"
+            "Second line, with punctuation: !@#$%^&*()\n"
+            "\n"
+            "Third line after a blank line.\n"
+        )
+        with mock.patch.object(cli, "run_tmux_input") as mock_input, mock.patch.object(
+            cli, "run_tmux"
+        ) as mock_run:
+            cli.paste_text(settings, self._pane(), multiline)
+
+        # No CR characters leaked into the loaded buffer content.
+        loaded = mock_input.call_args.args[2]
+        self.assertEqual(loaded, multiline)
+        self.assertNotIn("\r", loaded)
+
+        # delete-buffer is called exactly once regardless of paste success.
+        delete_calls = [
+            call for call in mock_run.call_args_list if call.args[1][0] == "delete-buffer"
+        ]
+        self.assertEqual(len(delete_calls), 1)
 
 
 if __name__ == "__main__":
