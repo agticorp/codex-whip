@@ -90,3 +90,21 @@ entirely against the orc.
 - Standing orders (the manager reads these each cycle): a markdown mandate the
   tick points at, e.g. `~/.config/codex-whip/<orc>-nazgul.md`.
 - The spec/roadmap under test: the repo's master spec, named in the tick.
+
+## Replicating this setup in a fresh Claude Code session
+
+Everything a new manager session needs is in this repo. Give the session one prompt:
+
+```
+Clone https://github.com/agticorp/codex-whip and read docs/nazgul-orc.md and
+docs/managing-claude.md. Then supervise the tmux orc session(s) <name>:0.0 against
+<path-to-mandate>: copy examples/overnight-standing-orders.md to a directives
+directory outside the supervised repos, fill in the placeholders, and arm a durable
+recurring scheduler job (every 15 min) whose prompt tells you to follow that
+standing-orders file exactly. Never interrupt a busy orc; never pause the loop.
+```
+
+Two things intentionally do NOT live in this repo and must be created per machine:
+the scheduler job itself (it lives in the Claude Code harness, e.g.
+`.claude/scheduled_tasks.json` when durable), and the directives directory with its
+standing-orders/state/summary files (working state, not source).
