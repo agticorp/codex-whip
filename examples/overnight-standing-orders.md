@@ -20,6 +20,15 @@ Goal: keep the orcs productive overnight WITHOUT continuous monitoring. One shor
 schedule fire. Token frugality is a hard requirement: capture pane tails only (~50 lines),
 never read full transcripts, read only the summary/directive files named below.
 
+## Rule 0 — model-downgrade kill switch (checked FIRST, every tick)
+
+At the start of every tick, verify the model powering this manager session. It must be
+`<expected-model>`. If it has been downgraded (e.g. to a lower tier) for ANY reason:
+STOP THE SESSION — touch no orc, append a `NAZGUL DOWNGRADED to <model>` line to the state
+file, write `<directives-dir>/NAZGUL_STOPPED_MODEL_DOWNGRADE.md`, delete the scheduler job
+(pre-authorized by the operator as the only exception to the never-pause rule), and end the
+turn. A downgraded manager must not keep directing orcs on the operator's behalf.
+
 ## Per-tick protocol
 
 For EACH orc, in order:
