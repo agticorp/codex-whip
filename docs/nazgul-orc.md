@@ -79,3 +79,12 @@ so the whip can't reliably nudge a Claude pane (the tick gets pasted but never
 fires). The harness scheduler enqueues a Claude Code turn natively, so a Claude
 manager is kept looping by the scheduler, while it uses tmux only to read and
 inject its Codex orc. Full guide: **[Managing a Claude Code Nazgûl](managing-claude.md)**.
+
+## Running several orcs at once
+
+For several specialised orcs on one gated, real-money build, see the
+**[Multi-Orc Supervision Playbook](multi-orc-playbook.md)**. It covers the shared files
+(status log, numbered decisions, HOLD approvals, human-facing tracker), the 15-minute
+supervision tick, Codex TUI mechanics (model-downgrade fix, capacity dialog,
+queue vs preempt), independent verification, the operator pattern for live-money
+steps, and the operations hygiene that cost real hours to learn.

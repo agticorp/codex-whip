@@ -67,6 +67,10 @@ Important behavior and guardrails:
 - **The autonomous loop is designed to keep running until the operator halts
   it.** Never turn it off, pause it, or delete the scheduler tick — that is the
   operator's call, never the agent's. See `docs/managing-claude.md`.
+- **Running several orcs?** Follow `docs/multi-orc-playbook.md` and arm
+  `examples/multi-orc-supervision-tick.md` as the manager's recurring tick. Check
+  each orc's footer model line every tick; on Codex's capacity dialog choose
+  "Dismiss and keep waiting" (option 1 silently downgrades the model).
 
 Minimal config file for another Codex instance:
 

@@ -45,6 +45,11 @@ and commands (or escalates / merges) → the Eye watches again.**
 - **[The Operating Loop](operating-loop.md)** — the concrete mechanics:
   reading, deciding, injecting (with the bracketed-paste gotcha), the Eye
   watcher, and the guardrails.
+- **[Multi-Orc Supervision Playbook](multi-orc-playbook.md)** — running several
+  specialised orcs on one gated, real-money build: shared status/decision/HOLD
+  files, the 15-minute supervision tick, Codex TUI mechanics (model-downgrade fix,
+  capacity dialog, queue vs preempt), independent verification, the operator pattern
+  for live-money steps, and the ops hygiene learned from a 30-hour run.
 - **[Porting to a New Machine](porting.md)** — copy-paste setup.
 - **[Instrumentation Roadmap](instrumentation.md)** — baking the loop into
   `codex-whip` itself (`--on-idle` hook, library API).

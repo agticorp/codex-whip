@@ -13,5 +13,7 @@ nav:
   - Home: index.md
   - The Nazgûl / Orc Pattern: nazgul-orc.md
   - The Operating Loop: operating-loop.md
+  - Managing a Claude Code Nazgûl: managing-claude.md
+  - Multi-Orc Supervision Playbook: multi-orc-playbook.md
   - Porting to a New Machine: porting.md
   - Instrumentation Roadmap: instrumentation.md

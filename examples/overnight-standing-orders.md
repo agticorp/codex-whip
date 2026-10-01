@@ -34,24 +34,27 @@ turn. A downgraded manager must not keep directing orcs on the operator's behalf
 For EACH orc, in order:
 
 1. Capture: `tmux capture-pane -t <orc>:0.0 -p -S -60 | sed '/^[[:space:]]*$/d' | tail -50`
-2. Classify:
+2. Check the orc's footer model line (e.g. `<expected-orc-model> <effort>`). If it was downgraded,
+   or a capacity dialog is showing, fix it first: choose "Dismiss and keep waiting" (`Down`, `Enter`),
+   or `/model` → frontier model → Extra high. See docs/multi-orc-playbook.md §3.
+3. Classify:
    - BUSY — tail shows `Working (` or `esc to interrupt` → do nothing. Never interrupt,
      never send Esc.
-   - IDLE at the input prompt → step 3.
+   - IDLE at the input prompt → step 4.
    - Approval prompt → approve only if plainly within the orc's mandate and non-reserved;
      otherwise log it and leave for morning.
-3. If IDLE and no fresh summary was requested this pause, inject (one line, <170 chars):
+4. If IDLE and no fresh summary was requested this pause, inject (one line, <170 chars):
    `Pause checkpoint: write a markdown summary of work since your last summary — done, evidence paths, blockers, next-step candidates — to <directives-dir>/<orc>_status_<HHMM>.md then stop.`
-4. Injection mechanics (Codex): `tmux send-keys -t <orc>:0.0 -l '<line>'; sleep 1;
+5. Injection mechanics (Codex): `tmux send-keys -t <orc>:0.0 -l '<line>'; sleep 1;
    tmux send-keys -t <orc>:0.0 Enter`; after ~2s re-capture the last 5 lines — if still at
    the idle prompt, re-send Enter (max 2 retries). Never inject into a busy pane.
-5. After requesting a summary: `sleep 180`, then check for the file once. If present:
+6. After requesting a summary: `sleep 180`, then check for the file once. If present:
    read it, decide the next increment (see Direction below), write it as a NEW directive
    file `<directives-dir>/<orc>_directive_<HHMM>.md` (concrete tasks, completion evidence
    required, stop conditions), then inject:
    `Read <directives-dir>/<orc>_directive_<HHMM>.md and execute it. Stop at its listed gates.`
    If the summary is not there yet, end the turn — the next tick handles it.
-6. Append ONE line per orc to `<directives-dir>/nazgul_overnight_state_<date>.md`:
+7. Append ONE line per orc to `<directives-dir>/nazgul_overnight_state_<date>.md`:
    `HH:MM <orc> BUSY|IDLE action=<none|summary-requested|directed:<file>> note=<≤15 words>`
    Read this state file at the START of every tick (it is the only cross-tick memory).
 
